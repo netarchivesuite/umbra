@@ -1,14 +1,18 @@
 #!/usr/bin/env python
 # vim: set sw=4 et:
 
-import logging
 import json
-import time
-import threading
-import kombu
+import logging
 import socket
-from brozzler.browser import BrowserPool, BrowsingException
+import threading
+import time
+from typing import Set
+
+from brozzler.browser import BrowsingException
+from kombu import Consumer, Connection
+
 import brozzler
+import kombu
 import urlcanon
 from umbra.ReleasableBrowserPool import ReleasableBrowserPool
 
@@ -48,6 +52,7 @@ class AmqpBrowserController:
 
     POST requests have an additional field, postData.
     """
+    _browsing_threads: Set[threading.Thread]
 
     logger = logging.getLogger(__module__ + "." + __qualname__)
 
@@ -64,8 +69,10 @@ class AmqpBrowserController:
                 size=max_active_browsers, chrome_exe=chrome_exe,
                 ignore_cert_errors=True)
 
-    def start(self):
         self._browsing_threads = set()
+
+    def start(self):
+        self._browsing_threads.clear()
         self._browsing_threads_lock = threading.Lock()
 
         self._exchange = kombu.Exchange(name=self.exchange_name, type='direct',
@@ -102,7 +109,7 @@ class AmqpBrowserController:
         self._reconnect_requested = True
         self._browser_pool.shutdown_now()
 
-    def _wait_for_and_browse_urls(self, conn, consumer, timeout):
+    def _wait_for_and_browse_urls(self, conn: Connection, consumer: Consumer, timeout):
         start = time.time()
         browser = None
 
