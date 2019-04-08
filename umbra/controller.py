@@ -152,6 +152,7 @@ class AmqpBrowserController:
                     if self._consumer_stop.is_set() or time.time() - start >= timeout or self._reconnect_requested:
                         browser.stop()
                         self._browser_pool.release(browser)
+                        self.logger.debug("Released browser on port %s", browser.chrome.port)
                         break
 
             except brozzler.browser.NoBrowsersAvailable:
@@ -161,6 +162,7 @@ class AmqpBrowserController:
                 self.logger.critical("problem with browser initialization", exc_info=True)
                 time.sleep(0.5)
             finally:
+                self.logger.info("Consumer is done")
                 consumer.callbacks = None
 
     def _wait_for_active_browsers(self, timeout=0):
@@ -237,7 +239,7 @@ class AmqpBrowserController:
                 req = chrome_msg['params']['response']['requestHeadersText']
                 payload['method'] = req[:req.index(' ')]
             else:
-                self.logger.warn('unable to identify http method (assuming GET) chrome_msg=%s',
+                self.logger.warning('unable to identify http method (assuming GET) chrome_msg=%s',
                                  chrome_msg)
                 payload['method'] = 'GET'
 
@@ -298,8 +300,8 @@ class AmqpBrowserController:
 
         def browse_page_sync():
             self.logger.info(
-                    'browser=%s client_id=%s url=%s behavior_parameters=%s',
-                    browser, client_id, url, behavior_parameters)
+                    'browser=%s client_id=%s behavior_parameters=%s',
+                    browser, client_id, behavior_parameters)
             try:
                 browser.start()
                 final_page_url, outlinks = browser.browse_page(
@@ -315,13 +317,13 @@ class AmqpBrowserController:
                 self.logger.info("page interstitial shown, likely unsupported http auth, for url {} - {}".format(url, e))
                 message.reject()
             except brozzler.ShutdownRequested as e:
-                self.logger.info("browsing did not complete normally, requeuing url {} - {}".format(url, e))
+                self.logger.info("browsing did not complete normally, requeuing - {}".format(e))
                 message.requeue()  # republish?
             except BrowsingException as e:
-                self.logger.warn("browsing did not complete normally, republishing url {} - {}".format(url, e))
+                self.logger.warning("browsing did not complete normally, republishing - {}".format(e))
                 republish_amqp(self, message)
             except:
-                self.logger.critical("problem browsing page, republishing url {}, may have lost browser process".format(url), exc_info=True)
+                self.logger.critical("problem browsing page, republishing, may have lost browser process {}".format(browser), exc_info=True)
                 republish_amqp(self, message)
             finally:
                 browser.stop()
@@ -362,10 +364,13 @@ class AmqpBrowserController:
             with self._browsing_threads_lock:
                 self._browsing_threads.remove(threading.current_thread())
 
-        thread_name = "BrowsingThread:%s" % browser.chrome.port
+
+        thread_name = "BrowsingThread:%s-%s" % (browser.chrome.port,url)
         th = threading.Thread(target=browse_thread_run_then_cleanup, name=thread_name)
+
         self.logger.info('adding thread %s to self._browsing_threads', th)
         with self._browsing_threads_lock:
             self._browsing_threads.add(th)
+
         th.start()
 
