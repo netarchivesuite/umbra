@@ -317,6 +317,7 @@ class AmqpBrowserController:
                 final_page_url, outlinks = browser.browse_page(
                         url, on_response=on_response,
                         behavior_parameters=behavior_parameters,
+                        skip_visit_hashtags=True,
                         username=username, password=password)
 
                 # Temporarily commenting out for https://webarchive.jira.com/browse/AITFIVE-1295
